@@ -1,5 +1,7 @@
-# Fly.io configuration for Folio. Change `app` if the name is taken.
-app = "folio-reader"
+# Fly.io configuration for Folio. The GitHub Action passes the app name itself
+# (repository variable FLY_APP); this value is used for manual `fly deploy`.
+app = "folio-drpaulfarrow"
+primary_region = "lhr"
 
 [env]
   PORT = "8080"
@@ -9,6 +11,7 @@ app = "folio-reader"
 [mounts]
   source = "folio_data"
   destination = "/data"
+  initial_size = "1gb"
 
 [http_service]
   internal_port = 8080

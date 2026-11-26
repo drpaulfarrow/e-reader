@@ -29,6 +29,19 @@ fly secrets set FOLIO_PASSWORD='choose-a-long-password'
 fly deploy
 ```
 
+### Or deploy automatically from GitHub
+
+`.github/workflows/fly-deploy.yml` deploys on every push, with no computer needed.
+Add two repository secrets under **Settings > Secrets and variables > Actions**:
+
+- `FLY_API_TOKEN`: an organisation token from the Fly dashboard (Tokens).
+- `FOLIO_PASSWORD`: the password for your library.
+
+The first run creates the app, its volume and the password; later runs just
+deploy. The app is named `folio-drpaulfarrow` in region `lhr`; set a repository
+variable `FLY_APP` to use another name, and edit `primary_region` in `fly.toml`
+to move it.
+
 Open `https://<app-name>.fly.dev` on your phone, enter the password once, then add
 it to the home screen:
 

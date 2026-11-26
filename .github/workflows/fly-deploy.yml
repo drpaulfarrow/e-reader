@@ -1,0 +1,51 @@
+name: Deploy to Fly
+
+# Deploys Folio to Fly.io on every push. Needs two repository secrets:
+#   FLY_API_TOKEN   an organisation token from the Fly dashboard
+#   FOLIO_PASSWORD  the password that protects your library
+# Optional repository variables: FLY_APP (app name) and FLY_ORG (default "personal").
+
+on:
+  push:
+    branches: [main, ccr-fe53674d-506smf]
+    paths-ignore: ['README.md']
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FOLIO_PASSWORD: ${{ secrets.FOLIO_PASSWORD }}
+      FLY_APP: ${{ vars.FLY_APP || 'folio-drpaulfarrow' }}
+      FLY_ORG: ${{ vars.FLY_ORG || 'personal' }}
+    steps:
+      - name: Check for the Fly token
+        if: ${{ env.FLY_API_TOKEN == '' }}
+        run: echo "::notice::FLY_API_TOKEN is not set, so nothing was deployed. Add it under Settings > Secrets and variables > Actions."
+
+      - uses: actions/checkout@v4
+        if: ${{ env.FLY_API_TOKEN != '' }}
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: ${{ env.FLY_API_TOKEN != '' }}
+
+      - name: Create the app on first run
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl status --app "$FLY_APP" >/dev/null 2>&1 || flyctl apps create "$FLY_APP" --org "$FLY_ORG"
+
+      - name: Set the library password
+        if: ${{ env.FLY_API_TOKEN != '' && env.FOLIO_PASSWORD != '' }}
+        run: flyctl secrets set "FOLIO_PASSWORD=$FOLIO_PASSWORD" --app "$FLY_APP" --stage
+
+      - name: Deploy
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --remote-only --app "$FLY_APP" --ha=false
+
+      - name: Show the address
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: echo "::notice::Deployed to https://$FLY_APP.fly.dev"
