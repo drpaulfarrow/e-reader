@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Folio</title>
+<meta name="description" content="A PDF reader that reflows documents for comfortable reading on a phone.">
+<meta name="theme-color" content="#faf8f4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Folio">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- Library -->
+<main id="library" class="view">
+  <header class="lib-head">
+    <h1>Folio</h1>
+    <button id="add-btn" class="btn primary" type="button">Add PDF</button>
+  </header>
+  <div id="lib-empty" class="empty" hidden>
+    <div class="empty-art" aria-hidden="true"></div>
+    <h2>Read PDFs comfortably on your phone</h2>
+    <p>Add a PDF and Folio re-lays it out for this screen: readable text, tables as cards, and images that fit. It remembers where you stopped.</p>
+    <button id="add-btn-2" class="btn primary big" type="button">Choose a PDF</button>
+    <p class="fine">Your files stay on this device.</p>
+  </div>
+  <ul id="book-list" class="books"></ul>
+  <p id="install-tip" class="fine tip" hidden></p>
+  <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+</main>
+
+<!-- Reader -->
+<div id="reader" class="view" hidden>
+  <div id="progress-bar" aria-hidden="true"><i></i></div>
+  <header id="topbar" class="bar">
+    <button id="back-btn" class="icon" type="button" aria-label="Back to library">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div id="book-title" class="bar-title"></div>
+    <button id="toc-btn" class="icon" type="button" aria-label="Contents">
+      <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg>
+    </button>
+    <button id="aa-btn" class="icon aa" type="button" aria-label="Display settings">Aa</button>
+  </header>
+  <article id="content"></article>
+  <div id="pages" hidden></div>
+  <footer id="bottombar" class="bar">
+    <span id="page-label"></span>
+    <span id="pct-label"></span>
+  </footer>
+</div>
+
+<!-- Sheets -->
+<div id="scrim" hidden></div>
+<section id="settings" class="sheet" hidden aria-label="Display settings">
+  <div class="grab"></div>
+  <div class="row">
+    <span class="lab">Text size</span>
+    <div class="stepper">
+      <button id="size-down" type="button" aria-label="Smaller text">A</button>
+      <span id="size-val"></span>
+      <button id="size-up" type="button" aria-label="Larger text" class="lg">A</button>
+    </div>
+  </div>
+  <div class="row">
+    <span class="lab">Theme</span>
+    <div class="seg" id="theme-seg">
+      <button data-v="auto" type="button">Auto</button>
+      <button data-v="light" type="button">Light</button>
+      <button data-v="sepia" type="button">Sepia</button>
+      <button data-v="dark" type="button">Dark</button>
+    </div>
+  </div>
+  <div class="row">
+    <span class="lab">Font</span>
+    <div class="seg" id="font-seg">
+      <button data-v="serif" type="button" style="font-family:var(--serif)">Serif</button>
+      <button data-v="sans" type="button">Sans</button>
+    </div>
+  </div>
+  <div class="row">
+    <span class="lab">View</span>
+    <div class="seg" id="mode-seg">
+      <button data-v="reflow" type="button">Reading</button>
+      <button data-v="pages" type="button">Original pages</button>
+    </div>
+  </div>
+</section>
+<section id="toc" class="sheet" hidden aria-label="Contents">
+  <div class="grab"></div>
+  <h2>Contents</h2>
+  <ol id="toc-list"></ol>
+</section>
+
+<!-- Image viewer -->
+<div id="viewer" hidden>
+  <img id="viewer-img" alt="">
+  <button id="viewer-close" class="icon" type="button" aria-label="Close">
+    <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <div id="viewer-hint">Pinch or double-tap to zoom</div>
+</div>
+
+<!-- Import overlay -->
+<div id="busy" hidden>
+  <div class="busy-card">
+    <div id="busy-title">Preparing your PDF</div>
+    <div class="meter"><i id="busy-meter"></i></div>
+    <div id="busy-sub" class="fine"></div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
