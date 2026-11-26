@@ -36,9 +36,9 @@ export const download = async (id) => (await call(`books/${id}/file`)).arrayBuff
 export const remove = (id) => call(`books/${id}`, { method: 'DELETE' });
 
 export async function upload(book, buf) {
-  await call(`books/${book.id}/file`, { method: 'PUT', headers: { 'content-type': 'application/pdf' }, body: buf });
-  const { id, title, name, size, numPages, added, cover } = book;
-  await call(`books/${id}`, { method: 'PUT', ...json({ id, title, name, size, numPages, added, cover }) });
+  await call(`books/${book.id}/file`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: buf });
+  const { id, kind, title, name, size, numPages, added, cover } = book;
+  await call(`books/${id}`, { method: 'PUT', ...json({ id, kind, title, name, size, numPages, added, cover }) });
 }
 
 export async function getPos(id, timeoutMs = 1500) {

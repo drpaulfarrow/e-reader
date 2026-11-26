@@ -2,6 +2,7 @@ import * as pdfjsLib from '../vendor/pdfjs/pdf.min.mjs';
 import { reflowDocument, PARSER_VERSION } from './reflow.js';
 import * as store from './store.js';
 import * as sync from './sync.js';
+import * as formats from './formats.js';
 
 const VENDOR = new URL('../vendor/pdfjs/', import.meta.url).href;
 pdfjsLib.GlobalWorkerOptions.workerSrc = VENDOR + 'pdf.worker.min.mjs';
@@ -64,6 +65,9 @@ function applySettings() {
 
 /* ---------- library ---------- */
 
+// PDFs have pages; the other formats are divided into sections (chapters).
+const unit = (b) => (b?.kind && b.kind !== 'pdf' ? 'Section' : 'Page');
+
 async function showLibrary() {
   closeReader();
   $('reader').hidden = true;
@@ -87,8 +91,8 @@ async function showLibrary() {
     const meta = el('div', 'book-meta');
     const pct = pos ? Math.round((pos.p || 0) * 100) : 0;
     meta.textContent = pos && (pos.p > 0.005 || pos.page > 1)
-      ? `Page ${pos.page || 1} of ${b.numPages} · ${pct}% read`
-      : `${b.numPages} page${b.numPages === 1 ? '' : 's'} · Not started`;
+      ? `${unit(b)} ${pos.page || 1} of ${b.numPages} · ${pct}% read`
+      : `${b.numPages} ${unit(b).toLowerCase()}${b.numPages === 1 ? '' : 's'} · Not started`;
     const prog = el('div', 'book-prog');
     const bar = el('i');
     bar.style.width = pct + '%';
@@ -125,28 +129,45 @@ async function renderCover(pdf) {
   } catch { return ''; }
 }
 
+const progress = (label) => (n, total) => {
+  $('busy-meter').style.width = Math.round((n / total) * 100) + '%';
+  if (label) $('busy-sub').textContent = `${label} · ${n} of ${total}`;
+  return new Promise((r) => setTimeout(r));
+};
+
+// Build the block model (and a cover) for a file of any supported kind.
+async function buildModel(kind, buf, name, label) {
+  if (kind !== 'pdf') {
+    const model = await formats.parse(kind, buf, name, progress(label));
+    const cover = model.cover;
+    delete model.cover;
+    return { model, cover, id: await sha256(buf) };
+  }
+  const pdf = await loadPdf(buf);
+  try {
+    const fp = pdf.fingerprints?.[0];
+    const id = /^[a-f0-9]{16,64}$/i.test(fp || '') ? fp : await sha256(buf);
+    const model = await reflowDocument(pdf, pdfjsLib.OPS, progress(label));
+    model.kind = 'pdf';
+    return { model, cover: await renderCover(pdf), id };
+  } finally {
+    try { pdf.destroy(); } catch { /* ignore */ }
+  }
+}
+
 async function importFiles(files) {
-  const pdfs = [...files].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-  if (!pdfs.length) { toast('Please choose a PDF file.'); return; }
+  const picked = [...files].map((f) => ({ file: f, kind: formats.kindOf(f) })).filter((x) => x.kind);
+  if (!picked.length) { toast('Please choose a PDF, EPUB, Markdown or HTML file.'); return; }
   let last = null;
-  for (const file of pdfs) {
-    busy(true, 'Preparing your PDF', file.name);
-    let pdf = null;
+  for (const { file, kind } of picked) {
+    busy(true, 'Preparing your document', file.name);
     try {
       const buf = await file.arrayBuffer();
-      pdf = await loadPdf(buf);
-      const fp = pdf.fingerprints?.[0];
-      const id = /^[a-f0-9]{16,64}$/i.test(fp || '') ? fp : await sha256(buf);
+      const { model, cover, id } = await buildModel(kind, buf, file.name, file.name);
       if (await store.getBook(id)) { last = id; continue; }
-      const model = await reflowDocument(pdf, pdfjsLib.OPS, (n, total) => {
-        $('busy-meter').style.width = Math.round((n / total) * 100) + '%';
-        $('busy-sub').textContent = `${file.name} · page ${n} of ${total}`;
-        return new Promise((r) => setTimeout(r));
-      });
-      const cover = await renderCover(pdf);
       const book = {
-        id, title: model.title || file.name.replace(/\.pdf$/i, ''), name: file.name,
-        size: buf.byteLength, numPages: pdf.numPages, added: Date.now(), lastRead: 0, cover,
+        id, kind, title: model.title || file.name.replace(/\.[^.]+$/, ''), name: file.name,
+        size: buf.byteLength, numPages: model.numPages, added: Date.now(), lastRead: 0, cover,
       };
       await store.addBook(book, buf, model);
       last = id;
@@ -155,14 +176,13 @@ async function importFiles(files) {
       console.error(e);
       toast(e?.name === 'PasswordException' ? `${file.name} is password-protected.`
         : e?.name === 'QuotaExceededError' ? 'Not enough storage space on this device.'
+        : /EPUB|readable|browser/.test(e?.message || '') ? e.message
         : `Could not open ${file.name}.`);
-    } finally {
-      try { pdf?.destroy(); } catch { /* ignore */ }
     }
   }
   busy(false);
   store.persist();
-  if (pdfs.length === 1 && last) go(last);
+  if (picked.length === 1 && last) go(last);
   else showLibrary();
 }
 
@@ -269,6 +289,33 @@ function figEl(b, pg) {
   return fig;
 }
 
+// Images from EPUB (stored with the book) or the web (Markdown, HTML).
+function imgEl(b) {
+  const fig = el('figure', 'fig');
+  const ph = el('div', 'ph img');
+  let src = b.u;
+  if (b.k) {
+    const a = S.model.assets?.[b.k];
+    if (!a) return el('p');
+    S.assetUrls ||= {};
+    src = S.assetUrls[b.k] ||= URL.createObjectURL(new Blob([a.data], { type: a.type }));
+    if (!S.urls.includes(src)) S.urls.push(src);
+  }
+  if (b.w && b.h) {
+    ph.style.aspectRatio = `${b.w} / ${b.h}`;
+    ph.style.width = `min(100%, ${b.w}px)`;
+    ph.style.margin = '0 auto';
+  }
+  const img = new Image();
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.alt = b.alt || '';
+  img.src = src;
+  ph.append(img);
+  fig.append(ph);
+  return fig;
+}
+
 function blockEl(b, pg) {
   switch (b.t) {
     case 'h': return el('h' + b.l, '', b.h);
@@ -290,9 +337,14 @@ function blockEl(b, pg) {
     case 'tiles': return tilesEl(b);
     case 'table': return tableEl(b);
     case 'fig': return figEl(b, pg);
+    case 'img': return imgEl(b);
+    case 'pre': { const p = el('pre'); p.textContent = b.x; return p; }
+    case 'hr': return el('hr');
     default: return el('p');
   }
 }
+
+const pdfBook = () => !S.book?.kind || S.book.kind === 'pdf';
 
 function renderContent(model) {
   const root = $('content');
@@ -304,8 +356,8 @@ function renderContent(model) {
     const sec = el('section');
     sec.dataset.page = pg.n;
     if (pg.n > 1) {
-      const m = el('div', 'pgmark');
-      m.textContent = pg.n;
+      const m = el('div', pdfBook() ? 'pgmark' : 'pgmark plain');
+      if (pdfBook()) m.textContent = pg.n;
       sec.append(m);
     }
     for (const b of pg.blocks) {
@@ -515,7 +567,7 @@ function flushPush(keepalive) {
 }
 
 function updateLabels(a) {
-  $('page-label').textContent = `Page ${a.page} of ${S.model.numPages}`;
+  $('page-label').textContent = `${unit(S.book)} ${a.page} of ${S.model.numPages}`;
   $('pct-label').textContent = Math.round(a.p * 100) + '%';
   $('progress-bar').firstElementChild.style.width = (a.p * 100).toFixed(1) + '%';
 }
@@ -574,6 +626,7 @@ function closeReader() {
   pdf?.then((p) => p.destroy()).catch(() => {});
   for (const u of S.urls) URL.revokeObjectURL(u);
   S.urls = [];
+  S.assetUrls = null;
   figObserver.disconnect();
   pageObserver.disconnect();
   $('content').textContent = '';
@@ -588,23 +641,22 @@ async function openBook(id) {
   try { book = await store.getBook(id); } catch { book = null; }
   if (!book) { history.replaceState(null, '', location.pathname + location.search); return showLibrary(); }
   S.book = book;
+  // Wait briefly for the sign-in check so a newer position from another device is not missed.
+  await Promise.race([syncReady, new Promise((r) => setTimeout(r, 1200))]);
+  if (S.book !== book) return;
   const remotePos = sync.state.auth ? sync.getPos(id) : null;
   let model = await store.getModel(id);
   if (!model || model.v !== PARSER_VERSION) {
     // Either this PDF was added on another device and has to be fetched, or the
     // reflow engine was updated since it was added: (re)build its layout.
-    busy(true, model ? 'Updating layout' : 'Preparing your PDF', book.title);
+    busy(true, model ? 'Updating layout' : 'Preparing your document', book.title);
     try {
-      const pdf = await getPdf();
-      model = await reflowDocument(pdf, pdfjsLib.OPS, (n, t) => {
-        $('busy-meter').style.width = Math.round((n / t) * 100) + '%';
-        return new Promise((r) => setTimeout(r));
-      });
+      model = (await buildModel(book.kind || 'pdf', await getFileBytes(id), book.name)).model;
       await store.putModel(id, model);
     } catch (e) {
       console.error(e);
       busy(false);
-      toast('This PDF could not be opened.');
+      toast('This document could not be opened.');
       return showLibrary();
     }
     busy(false);
@@ -621,7 +673,8 @@ async function openBook(id) {
   const rp = await remotePos;
   if (S.book !== book) return;
   if (rp && (!pos || (rp.t || 0) > (pos.t || 0))) { pos = rp; store.setPos(id, rp); }
-  setMode(pos?.mode === 'pages' ? 'pages' : 'reflow', false);
+  $('mode-row').hidden = !pdfBook();
+  setMode(pos?.mode === 'pages' && pdfBook() ? 'pages' : 'reflow', false);
   restore(pos);
   lastY = scrollY;
   requestAnimationFrame(() => { restore(pos); S.anchor = currentAnchor(); if (S.anchor) updateLabels(S.anchor); });
@@ -849,10 +902,12 @@ async function sha256(buf) {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
 }
 
+const syncReady = sync.init();
+
 async function startSync() {
-  const st = await sync.init();
+  const st = await syncReady;
   if (!st.available) return;
-  $('privacy-note').textContent = 'Your PDFs are stored privately on your Folio server.';
+  $('privacy-note').textContent = 'Your documents are stored privately on your Folio server.';
   if (!st.configured) {
     $('sync-note').textContent = 'Sync is off: the server has no password set yet.';
     $('sync-note').hidden = false;

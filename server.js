@@ -115,7 +115,7 @@ async function api(req, res, url) {
       if (!n.endsWith('.json')) continue;
       const id = n.slice(0, -5);
       const meta = await loadMeta(id);
-      if (meta && await exists(file(id, 'pdf'))) books.push(meta);
+      if (meta && await exists(file(id, 'bin'))) books.push(meta);
     }
     const deleted = names.filter((n) => n.endsWith('.deleted')).map((n) => n.slice(0, -8));
     return send(res, 200, { books, deleted });
@@ -129,7 +129,8 @@ async function api(req, res, url) {
     const b = await readJson(req);
     const old = (await loadMeta(id)) || {};
     await saveMeta(id, {
-      id, title: String(b.title || old.title || 'Untitled').slice(0, 300), name: String(b.name || old.name || '').slice(0, 300),
+      id, kind: ['pdf', 'epub', 'md', 'html'].includes(b.kind) ? b.kind : old.kind || 'pdf',
+      title: String(b.title || old.title || 'Untitled').slice(0, 300), name: String(b.name || old.name || '').slice(0, 300),
       size: +b.size || old.size || 0, numPages: +b.numPages || old.numPages || 0, added: +b.added || old.added || Date.now(),
       cover: typeof b.cover === 'string' && b.cover.startsWith('data:image/') ? b.cover.slice(0, 200_000) : old.cover || '',
       pos: old.pos || null,
@@ -137,13 +138,13 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
   if (!sub && m === 'DELETE') {
-    await Promise.all([fsp.rm(file(id, 'pdf'), { force: true }), fsp.rm(file(id, 'json'), { force: true })]);
+    await Promise.all([fsp.rm(file(id, 'bin'), { force: true }), fsp.rm(file(id, 'json'), { force: true })]);
     await fsp.writeFile(file(id, 'deleted'), '');
     return send(res, 200, { ok: true });
   }
   if (sub === 'file' && m === 'PUT') {
     if (+req.headers['content-length'] > MAX_PDF) return send(res, 413, { error: 'File too large' });
-    const tmp = file(id, `pdf.${crypto.randomUUID()}.tmp`);
+    const tmp = file(id, `bin.${crypto.randomUUID()}.tmp`);
     let n = 0;
     try {
       await pipeline(req, async function* (src) {
@@ -155,10 +156,13 @@ async function api(req, res, url) {
       }, fs.createWriteStream(tmp));
       const fd = await fsp.open(tmp);
       const head = Buffer.alloc(1024);
-      await fd.read(head, 0, 1024, 0);
+      // Accept PDF, EPUB (a zip) or text (Markdown, HTML); refuse other binaries.
+      const { bytesRead } = await fd.read(head, 0, 1024, 0);
+      const sample = head.subarray(0, bytesRead);
+      const ok = sample.includes('%PDF-') || (sample[0] === 0x50 && sample[1] === 0x4b) || (bytesRead > 0 && !sample.includes(0));
       await fd.close();
-      if (!head.includes('%PDF-')) throw Object.assign(new Error('not a PDF'), { status: 415 });
-      await fsp.rename(tmp, file(id, 'pdf'));
+      if (!ok) throw Object.assign(new Error('Unsupported file type'), { status: 415 });
+      await fsp.rename(tmp, file(id, 'bin'));
       await fsp.rm(file(id, 'deleted'), { force: true });
     } catch (e) {
       await fsp.rm(tmp, { force: true });
@@ -168,9 +172,10 @@ async function api(req, res, url) {
   }
   if (sub === 'file' && m === 'GET') {
     let st;
-    try { st = await fsp.stat(file(id, 'pdf')); } catch { return send(res, 404, { error: 'Not found' }); }
-    res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': st.size, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' });
-    return pipeline(fs.createReadStream(file(id, 'pdf')), res);
+    try { st = await fsp.stat(file(id, 'bin')); } catch { return send(res, 404, { error: 'Not found' }); }
+    // Always a download, never rendered: uploaded HTML must not run on this origin.
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment', 'content-length': st.size, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' });
+    return pipeline(fs.createReadStream(file(id, 'bin')), res);
   }
   if (sub === 'pos' && m === 'GET') {
     const meta = await loadMeta(id);

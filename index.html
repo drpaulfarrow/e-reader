@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Folio</title>
-<meta name="description" content="A PDF reader that reflows documents for comfortable reading on a phone.">
+<meta name="description" content="A reader for PDF, EPUB and Markdown documents, laid out for comfortable reading on a phone.">
 <meta name="theme-color" content="#faf8f4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,18 +21,18 @@
 <main id="library" class="view">
   <header class="lib-head">
     <h1>Folio</h1>
-    <button id="add-btn" class="btn primary" type="button">Add PDF</button>
+    <button id="add-btn" class="btn primary" type="button">Add</button>
   </header>
   <div id="lib-empty" class="empty" hidden>
     <div class="empty-art" aria-hidden="true"></div>
-    <h2>Read PDFs comfortably on your phone</h2>
-    <p>Add a PDF and Folio re-lays it out for this screen: readable text, tables as cards, and images that fit. It remembers where you stopped.</p>
-    <button id="add-btn-2" class="btn primary big" type="button">Choose a PDF</button>
+    <h2>Read documents comfortably on your phone</h2>
+    <p>Add a PDF, EPUB, Markdown or HTML file and Folio lays it out for this screen: readable text, tables as cards, and images that fit. It remembers where you stopped.</p>
+    <button id="add-btn-2" class="btn primary big" type="button">Choose a file</button>
     <p id="privacy-note" class="fine">Your files stay on this device.</p>
   </div>
   <form id="signin" class="signin" hidden>
     <strong>Sign in to sync</strong>
-    <span class="fine">Enter your Folio password to keep your PDFs and reading position in step across devices.</span>
+    <span class="fine">Enter your Folio password to keep your documents and reading position in step across devices.</span>
     <div class="signin-row">
       <input id="signin-pw" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
       <button class="btn primary" type="submit">Sign in</button>
@@ -41,7 +41,7 @@
   <ul id="book-list" class="books"></ul>
   <p id="sync-note" class="fine tip" hidden></p>
   <p id="install-tip" class="fine tip" hidden></p>
-  <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+  <input id="file-input" type="file" accept=".pdf,.epub,.md,.markdown,.txt,.html,.htm,application/pdf,application/epub+zip,text/markdown,text/plain,text/html" multiple hidden>
 </main>
 
 <!-- Reader -->
@@ -93,7 +93,7 @@
       <button data-v="sans" type="button">Sans</button>
     </div>
   </div>
-  <div class="row">
+  <div class="row" id="mode-row">
     <span class="lab">View</span>
     <div class="seg" id="mode-seg">
       <button data-v="reflow" type="button">Reading</button>
@@ -119,7 +119,7 @@
 <!-- Import overlay -->
 <div id="busy" hidden>
   <div class="busy-card">
-    <div id="busy-title">Preparing your PDF</div>
+    <div id="busy-title">Preparing your document</div>
     <div class="meter"><i id="busy-meter"></i></div>
     <div id="busy-sub" class="fine"></div>
   </div>

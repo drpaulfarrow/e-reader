@@ -1,9 +1,9 @@
 // Offline support: the app shell is cached on install; everything else from
 // this origin (fonts and character maps for unusual PDFs) is cached on first use.
-const CACHE = 'folio-v2';
+const CACHE = 'folio-v3';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/app.css', 'js/app.js', 'js/reflow.js', 'js/store.js', 'js/sync.js',
+  'css/app.css', 'js/app.js', 'js/reflow.js', 'js/store.js', 'js/sync.js', 'js/formats.js',
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];

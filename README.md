@@ -1,7 +1,7 @@
 # Folio
 
-A PDF reader for phones. Instead of showing tiny fixed pages, Folio re-lays each
-PDF out for the screen it is on:
+A document reader for phones. It opens **PDF, EPUB, Markdown and HTML** files and
+lays each one out for the screen it is on, instead of showing tiny fixed pages:
 
 - **Text reflows** into a single readable column with adjustable size, font and theme.
 - **Tables become cards** (one card per row, column headers as labels); small numeric
@@ -64,13 +64,25 @@ python3 -m http.server 8000            # static only, http://localhost:8000
 | --- | --- |
 | `js/reflow.js` | The reflow engine. Reads each page's text and drawing commands through pdf.js and turns them into blocks: headings, paragraphs, list items, callouts, tables, figures. Handles multi-column pages with a recursive XY-cut. |
 | `js/app.js` | Library, reader, reading-position tracking, settings, image viewer. |
+| `js/formats.js` | Markdown, HTML and EPUB input. These formats already carry their structure, so they are converted directly into the same blocks (own Markdown parser, EPUB unzipped in the browser, all HTML sanitised through an allowlist). |
 | `js/store.js` | IndexedDB (PDFs and parsed layouts) and localStorage (position, settings). |
 | `js/sync.js` | Talks to the server when there is one: uploads, downloads, position sync. |
 | `server.js` | Zero-dependency Node server: static files plus a small password-protected API storing PDFs on disk. |
 | `sw.js` | Service worker for offline use. |
 | `vendor/pdfjs/` | pdf.js 4.10 (Apache 2.0), vendored. |
 
+## Which format to use
+
+PDF describes ink on a page, so Folio has to infer headings, tables and reading
+order. Markdown and EPUB state their structure outright and come out exact. If a
+document is being generated for reading here (for example by an AI assistant),
+ask for Markdown; use EPUB for full books.
+
 ## Limits
+
+- EPUB styling is simplified to the reader's own (bold and italic are kept), internal
+  cross-references are not links, and copy-protected (DRM) books cannot be opened.
+- Markdown images must be web URLs or embedded data URIs; relative image paths are skipped.
 
 - Reflow is heuristic. Tables without ruled lines are read row by row as text, and
   complex layouts can come out imperfect; the Original pages view is the fallback.
