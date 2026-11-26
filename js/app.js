@@ -1,6 +1,7 @@
 import * as pdfjsLib from '../vendor/pdfjs/pdf.min.mjs';
 import { reflowDocument, PARSER_VERSION } from './reflow.js';
 import * as store from './store.js';
+import * as sync from './sync.js';
 
 const VENDOR = new URL('../vendor/pdfjs/', import.meta.url).href;
 pdfjsLib.GlobalWorkerOptions.workerSrc = VENDOR + 'pdf.worker.min.mjs';
@@ -97,7 +98,10 @@ async function showLibrary() {
     del.setAttribute('aria-label', `Remove ${b.title}`);
     del.addEventListener('click', async (ev) => {
       ev.stopPropagation();
-      if (!confirm(`Remove “${b.title}” from this device?`)) return;
+      if (!confirm(sync.state.auth ? `Remove “${b.title}” from all your devices?` : `Remove “${b.title}” from this device?`)) return;
+      if (sync.state.auth) {
+        try { await sync.remove(b.id); } catch { toast('Could not reach the server. Try again when online.'); return; }
+      }
       await store.deleteBook(b.id);
       showLibrary();
     });
@@ -131,7 +135,8 @@ async function importFiles(files) {
     try {
       const buf = await file.arrayBuffer();
       pdf = await loadPdf(buf);
-      const id = pdf.fingerprints?.[0] || `${file.name}:${buf.byteLength}`;
+      const fp = pdf.fingerprints?.[0];
+      const id = /^[a-f0-9]{16,64}$/i.test(fp || '') ? fp : await sha256(buf);
       if (await store.getBook(id)) { last = id; continue; }
       const model = await reflowDocument(pdf, pdfjsLib.OPS, (n, total) => {
         $('busy-meter').style.width = Math.round((n / total) * 100) + '%';
@@ -145,6 +150,7 @@ async function importFiles(files) {
       };
       await store.addBook(book, buf, model);
       last = id;
+      if (sync.state.auth) sync.upload(book, buf).catch(() => toast('Saved on this device. Upload will retry at next launch.'));
     } catch (e) {
       console.error(e);
       toast(e?.name === 'PasswordException' ? `${file.name} is password-protected.`
@@ -332,7 +338,16 @@ function renderContent(model) {
 
 /* ---------- figures: lazy page crops ---------- */
 
-const getPdf = () => (S.pdf ||= store.getFile(S.book.id).then(loadPdf));
+async function getFileBytes(id) {
+  let buf = await store.getFile(id);
+  if (!buf) {
+    // Added on another device: fetch it from the server once and keep a copy.
+    buf = await sync.download(id);
+    await store.putFile(id, buf);
+  }
+  return buf;
+}
+const getPdf = () => (S.pdf ||= getFileBytes(S.book.id).then(loadPdf));
 let renderChain = Promise.resolve();
 const queue = (fn) => (renderChain = renderChain.then(fn, fn));
 
@@ -475,8 +490,28 @@ function savePos() {
   const a = currentAnchor();
   if (!a) return;
   S.anchor = a;
-  store.setPos(S.book.id, { ...a, t: Date.now() });
   updateLabels(a);
+  // Only a real move counts as new: re-saving the same spot (app closing, a
+  // reload) must not look newer than progress made on another device.
+  const old = store.getPos(S.book.id);
+  if (old && old.mode === a.mode && old.i === a.i && old.page === a.page && Math.abs((old.f || 0) - a.f) < 0.02 && Math.abs((old.pf || 0) - a.pf) < 0.02) return;
+  const pos = { ...a, t: Date.now() };
+  store.setPos(S.book.id, pos);
+  schedulePush(S.book.id, pos);
+}
+
+// Send the position to the server at most every few seconds while reading.
+let pushTimer = 0, pending = null;
+function schedulePush(id, pos) {
+  if (!sync.state.auth) return;
+  pending = { id, pos };
+  if (!pushTimer) pushTimer = setTimeout(() => flushPush(false), 4000);
+}
+function flushPush(keepalive) {
+  clearTimeout(pushTimer);
+  pushTimer = 0;
+  if (pending) sync.pushPos(pending.id, pending.pos, keepalive);
+  pending = null;
 }
 
 function updateLabels(a) {
@@ -527,7 +562,8 @@ function closeReader() {
   // Don't measure the page here: when leaving via the browser's back gesture the
   // scroll position may already have changed. Keep the last position we recorded.
   clearTimeout(saveTimer);
-  if (S.book && S.anchor) store.setPos(S.book.id, { ...S.anchor, t: Date.now() });
+  if (S.book && S.anchor) store.setPos(S.book.id, { ...S.anchor, t: store.getPos(S.book.id)?.t || Date.now() });
+  flushPush(false);
   S.gen++;
   S.book = null;
   S.model = null;
@@ -552,10 +588,12 @@ async function openBook(id) {
   try { book = await store.getBook(id); } catch { book = null; }
   if (!book) { history.replaceState(null, '', location.pathname + location.search); return showLibrary(); }
   S.book = book;
+  const remotePos = sync.state.auth ? sync.getPos(id) : null;
   let model = await store.getModel(id);
   if (!model || model.v !== PARSER_VERSION) {
-    // The reflow engine was updated since this PDF was added: rebuild its layout.
-    busy(true, 'Updating layout', book.title);
+    // Either this PDF was added on another device and has to be fetched, or the
+    // reflow engine was updated since it was added: (re)build its layout.
+    busy(true, model ? 'Updating layout' : 'Preparing your PDF', book.title);
     try {
       const pdf = await getPdf();
       model = await reflowDocument(pdf, pdfjsLib.OPS, (n, t) => {
@@ -579,11 +617,14 @@ async function openBook(id) {
   $('book-title').textContent = book.title;
   document.title = book.title;
   renderContent(model);
-  const pos = store.getPos(id);
+  let pos = store.getPos(id);
+  const rp = await remotePos;
+  if (S.book !== book) return;
+  if (rp && (!pos || (rp.t || 0) > (pos.t || 0))) { pos = rp; store.setPos(id, rp); }
   setMode(pos?.mode === 'pages' ? 'pages' : 'reflow', false);
   restore(pos);
   lastY = scrollY;
-  requestAnimationFrame(() => { restore(pos); savePos(); });
+  requestAnimationFrame(() => { restore(pos); S.anchor = currentAnchor(); if (S.anchor) updateLabels(S.anchor); });
   store.setOpen(id);
   book.lastRead = Date.now();
   store.putBook(book).catch(() => {});
@@ -755,8 +796,8 @@ function init() {
   addEventListener('scroll', () => {
     if (!ticking) { ticking = true; requestAnimationFrame(onScroll); }
   }, { passive: true });
-  addEventListener('pagehide', savePos);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) savePos(); });
+  addEventListener('pagehide', () => { savePos(); flushPush(true); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { savePos(); flushPush(true); } });
   let lastW = innerWidth;
   addEventListener('resize', () => {
     if (innerWidth === lastW) return;
@@ -798,6 +839,75 @@ function init() {
     S.canBack = true;
   }
   route();
+  startSync();
+}
+
+/* ---------- server sync (only when served by server.js) ---------- */
+
+async function sha256(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+
+async function startSync() {
+  const st = await sync.init();
+  if (!st.available) return;
+  $('privacy-note').textContent = 'Your PDFs are stored privately on your Folio server.';
+  if (!st.configured) {
+    $('sync-note').textContent = 'Sync is off: the server has no password set yet.';
+    $('sync-note').hidden = false;
+    return;
+  }
+  $('signin').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await sync.login($('signin-pw').value);
+      $('signin-pw').value = '';
+      $('signin').hidden = true;
+      syncNow();
+    } catch (err) { toast(err.message || 'Could not sign in.'); }
+  });
+  if (st.auth) syncNow();
+  else $('signin').hidden = false;
+}
+
+async function syncNow() {
+  try {
+    const { books: remote, deleted } = await sync.list();
+    const local = await store.listBooks();
+    const localIds = new Set(local.map((b) => b.id));
+    const remoteIds = new Set(remote.map((b) => b.id));
+    let changed = false;
+    for (const b of local) {
+      // Removed on another device: remove here too (unless it is open right now).
+      if (deleted.includes(b.id) && !remoteIds.has(b.id) && S.book?.id !== b.id) {
+        await store.deleteBook(b.id);
+        localIds.delete(b.id);
+        changed = true;
+      }
+    }
+    for (const r of remote) {
+      const { pos, ...meta } = r;
+      if (!localIds.has(r.id)) { await store.putBook({ ...meta, lastRead: pos?.t || 0 }); changed = true; }
+      const lp = store.getPos(r.id);
+      if (pos && (!lp || (pos.t || 0) > (lp.t || 0))) { if (S.book?.id !== r.id) { store.setPos(r.id, pos); changed = true; } }
+      else if (lp && (!pos || (lp.t || 0) > (pos.t || 0))) sync.pushPos(r.id, lp);
+    }
+    for (const b of local) {
+      if (remoteIds.has(b.id) || !localIds.has(b.id)) continue;
+      const buf = await store.getFile(b.id);
+      if (!buf) continue;
+      await sync.upload(b, buf);
+      const lp = store.getPos(b.id);
+      if (lp) sync.pushPos(b.id, lp);
+    }
+    $('sync-note').textContent = 'Synced with your Folio server.';
+    $('sync-note').hidden = false;
+    if (changed && !S.book) showLibrary();
+  } catch (err) {
+    if (err.status === 401) $('signin').hidden = false;
+    else console.warn('sync', err);
+  }
 }
 
 init();

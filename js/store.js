@@ -43,6 +43,7 @@ export const getBook = async (id) => req((await db()).transaction('books').objec
 export const getFile = async (id) => req((await db()).transaction('files').objectStore('files').get(id));
 export const getModel = async (id) => req((await db()).transaction('models').objectStore('models').get(id));
 export const putBook = (book) => tx(['books'], 'readwrite', (t) => { t.objectStore('books').put(book); });
+export const putFile = (id, file) => tx(['files'], 'readwrite', (t) => { t.objectStore('files').put(file, id); });
 export const putModel = (id, model) => tx(['models'], 'readwrite', (t) => { t.objectStore('models').put(model, id); });
 
 export const addBook = (book, file, model) => tx(['books', 'files', 'models'], 'readwrite', (t) => {

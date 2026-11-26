@@ -28,9 +28,18 @@
     <h2>Read PDFs comfortably on your phone</h2>
     <p>Add a PDF and Folio re-lays it out for this screen: readable text, tables as cards, and images that fit. It remembers where you stopped.</p>
     <button id="add-btn-2" class="btn primary big" type="button">Choose a PDF</button>
-    <p class="fine">Your files stay on this device.</p>
+    <p id="privacy-note" class="fine">Your files stay on this device.</p>
   </div>
+  <form id="signin" class="signin" hidden>
+    <strong>Sign in to sync</strong>
+    <span class="fine">Enter your Folio password to keep your PDFs and reading position in step across devices.</span>
+    <div class="signin-row">
+      <input id="signin-pw" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+      <button class="btn primary" type="submit">Sign in</button>
+    </div>
+  </form>
   <ul id="book-list" class="books"></ul>
+  <p id="sync-note" class="fine tip" hidden></p>
   <p id="install-tip" class="fine tip" hidden></p>
   <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden>
 </main>

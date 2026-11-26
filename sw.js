@@ -1,9 +1,9 @@
 // Offline support: the app shell is cached on install; everything else from
 // this origin (fonts and character maps for unusual PDFs) is cached on first use.
-const CACHE = 'folio-v1';
+const CACHE = 'folio-v2';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/app.css', 'js/app.js', 'js/reflow.js', 'js/store.js',
+  'css/app.css', 'js/app.js', 'js/reflow.js', 'js/store.js', 'js/sync.js',
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
@@ -24,7 +24,9 @@ self.addEventListener('activate', (e) => {
 // background so the next launch picks up updates.
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  // Never cache the sync API: PDFs and positions must come from the server.
+  if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/api/')) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const key = req.mode === 'navigate' ? './' : req;
